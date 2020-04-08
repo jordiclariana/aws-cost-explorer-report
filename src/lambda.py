@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# 
+#
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this
 # software and associated documentation files (the "Software"), to deal in the Software
 # without restriction, including without limitation the rights to use, copy, modify,
 # merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
 # permit persons to whom the Software is furnished to do so.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
 # INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
 # PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
@@ -53,7 +53,7 @@ if not SES_REGION:
 ACCOUNT_LABEL = os.environ.get('ACCOUNT_LABEL')
 if not ACCOUNT_LABEL:
     ACCOUNT_LABEL = 'Email'
-    
+
 CURRENT_MONTH = os.environ.get('CURRENT_MONTH')
 if CURRENT_MONTH == "true":
     CURRENT_MONTH = True
@@ -70,6 +70,20 @@ if INC_SUPPORT == "true":
 else:
     INC_SUPPORT = False
 
+# Default include taxes
+INC_TAX = os.environ.get('INC_TAX')
+if INC_TAX == "false":
+    INC_TAX = False
+else:
+    INC_TAX = True
+
+# Default include Saving Plans
+INC_SAVING_PLANS = os.environ.get('INC_SAVING_PLANS')
+if INC_SAVING_PLANS == "false":
+    INC_SAVING_PLANS = False
+else:
+    INC_SAVING_PLANS = True
+
 TAG_VALUE_FILTER = os.environ.get('TAG_VALUE_FILTER') or '*'
 TAG_KEY = os.environ.get('TAG_KEY')
 
@@ -78,7 +92,7 @@ class CostExplorer:
     >>> costexplorer = CostExplorer()
     >>> costexplorer.addReport(GroupBy=[{"Type": "DIMENSION","Key": "SERVICE"}])
     >>> costexplorer.generateExcel()
-    """    
+    """
     def __init__(self, CurrentMonth=False):
         #Array of reports ready to be output to Excel.
         self.reports = []
@@ -93,7 +107,7 @@ class CostExplorer:
         else:
             # Default is last 12 months
             self.start = (datetime.date.today() - relativedelta(months=+12)).replace(day=1) #1st day of month 12 months ago
-    
+
         self.ristart = (datetime.date.today() - relativedelta(months=+11)).replace(day=1) #1st day of month 11 months ago
         self.sixmonth = (datetime.date.today() - relativedelta(months=+6)).replace(day=1) #1st day of month 6 months ago, so RI util has savings values
         try:
@@ -101,7 +115,7 @@ class CostExplorer:
         except:
             logging.exception("Getting Account names failed")
             self.accounts = {}
-        
+
     def getAccounts(self):
         accounts = {}
         client = boto3.client('organizations', region_name='us-east-1')
@@ -111,7 +125,7 @@ class CostExplorer:
             for acc in response['Accounts']:
                 accounts[acc['Id']] = acc
         return accounts
-    
+
     def addRiReport(self, Name='RICoverage', Savings=False, PaymentOption='PARTIAL_UPFRONT', Service='Amazon Elastic Compute Cloud - Compute'): #Call with Savings True to get Utilization report in dollar savings
         type = 'chart' #other option table
         if Name == "RICoverage":
@@ -139,13 +153,13 @@ class CostExplorer:
                     nextToken = response['nextToken']
                 else:
                     nextToken = False
-            
+
             rows = []
             for v in results:
                 row = {'date':v['TimePeriod']['Start']}
                 row.update({'Coverage%':float(v['Total']['CoverageHours']['CoverageHoursPercentage'])})
-                rows.append(row)  
-                    
+                rows.append(row)
+
             df = pd.DataFrame(rows)
             df.set_index("date", inplace= True)
             df = df.fillna(0.0)
@@ -176,7 +190,7 @@ class CostExplorer:
                     nextToken = response['nextToken']
                 else:
                     nextToken = False
-            
+
             rows = []
             if results:
                 for v in results:
@@ -185,8 +199,8 @@ class CostExplorer:
                         row.update({'Savings$':float(v['Total']['NetRISavings'])})
                     else:
                         row.update({'Utilization%':float(v['Total']['UtilizationPercentage'])})
-                    rows.append(row)  
-                        
+                    rows.append(row)
+
                 df = pd.DataFrame(rows)
                 df.set_index("date", inplace= True)
                 df = df.fillna(0.0)
@@ -220,7 +234,7 @@ class CostExplorer:
                     nextToken = response['nextToken']
                 else:
                     nextToken = False
-                
+
             rows = []
             for i in results:
                 for v in i['RecommendationDetails']:
@@ -233,20 +247,20 @@ class CostExplorer:
                     row['BreakEvenIn']=v['EstimatedBreakEvenInMonths']
                     row['UpfrontCost']=v['UpfrontCost']
                     row['MonthlyCost']=v['RecurringStandardMonthlyCost']
-                    rows.append(row)  
+                    rows.append(row)
                 
-                    
+
             df = pd.DataFrame(rows)
             df = df.fillna(0.0)
             type = 'table' #Dont try chart this
         self.reports.append({'Name':Name,'Data':df, 'Type':type})
-            
+
     def addLinkedReports(self, Name='RI_{}',PaymentOption='PARTIAL_UPFRONT'):
         pass
-            
-    def addReport(self, Name="Default",GroupBy=[{"Type": "DIMENSION","Key": "SERVICE"},], 
-    Style='Total', NoCredits=True, CreditsOnly=False, RefundOnly=False, UpfrontOnly=False, IncSupport=False):
-        type = 'chart' #other option table
+
+    def addReport(self, Name="Default", GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}, ],
+                  Style='Total', NoCredits=True, CreditsOnly=False, RefundOnly=False, UpfrontOnly=False, IncSupport=False, IncTax=True, IncSavingPlans=True):
+        type = 'chart'  # other option table
         results = []
         if not NoCredits:
             response = self.client.get_cost_and_usage(
@@ -272,6 +286,12 @@ class CostExplorer:
                 Dimensions={"Dimensions": {"Key": "RECORD_TYPE","Values": ["Refund",]}}
             if UpfrontOnly:
                 Dimensions={"Dimensions": {"Key": "RECORD_TYPE","Values": ["Upfront",]}}
+            # If filtering Record_Types and Tax excluded
+            if "Not" in Dimensions and (not INC_TAX or not IncTax):
+                Dimensions["Not"]["Dimensions"]["Values"].append("Tax")
+            # If filtering Record_Types and Saving Plans excluded
+            if not INC_SAVING_PLANS or not IncSavingPlans:
+                Filter["And"].append({"Not": {"Dimensions": {"Key": "SERVICE", "Values": ["Savings Plans for AWS Compute usage"]}}})
 
             tagValues = None
             if TAG_KEY:
@@ -284,11 +304,12 @@ class CostExplorer:
                     TagKey=TAG_KEY
                 )
 
-            if tagValues:
+            if tagValues or not INC_SAVING_PLANS or not IncSavingPlans:
                 Filter["And"].append(Dimensions)
-                if len(tagValues["Tags"]) > 0:
+                if tagValues:
+                    if len(tagValues["Tags"]) > 0:
                     Tags = {"Tags": {"Key": TAG_KEY, "Values": tagValues["Tags"]}}
-                    Filter["And"].append(Tags)
+                        Filter["And"].append(Tags)
             else:
                 Filter = Dimensions.copy()
 
@@ -307,7 +328,7 @@ class CostExplorer:
 
         if response:
             results.extend(response['ResultsByTime'])
-     
+
             while 'nextToken' in response:
                 nextToken = response['nextToken']
                 response = self.client.get_cost_and_usage(
@@ -322,7 +343,7 @@ class CostExplorer:
                     GroupBy=GroupBy,
                     NextPageToken=nextToken
                 )
-     
+
                 results.extend(response['ResultsByTime'])
                 if 'nextToken' in response:
                     nextToken = response['nextToken']
@@ -340,12 +361,12 @@ class CostExplorer:
                 row.update({key:float(i['Metrics']['UnblendedCost']['Amount'])}) 
             if not v['Groups']:
                 row.update({'Total':float(v['Total']['UnblendedCost']['Amount'])})
-            rows.append(row)  
+            rows.append(row)
 
         df = pd.DataFrame(rows)
         df.set_index("date", inplace= True)
         df = df.fillna(0.0)
-        
+
         if Style == 'Change':
             dfc = df.copy()
             lastindex = None
@@ -362,7 +383,7 @@ class CostExplorer:
         df = df.sort_values(sort, ascending=False)
         self.reports.append({'Name':Name,'Data':df, 'Type':type})
         
-        
+
     def generateExcel(self):
         # Create a Pandas Excel writer using XlsxWriter as the engine.\
         os.chdir('/tmp')
@@ -373,10 +394,10 @@ class CostExplorer:
             report['Data'].to_excel(writer, sheet_name=report['Name'])
             worksheet = writer.sheets[report['Name']]
             if report['Type'] == 'chart':
-                
+
                 # Create a chart object.
                 chart = workbook.add_chart({'type': 'column', 'subtype': 'stacked'})
-                
+
                 
                 chartend=12
                 if CURRENT_MONTH:
@@ -391,7 +412,7 @@ class CostExplorer:
                 chart.set_x_axis({'label_position': 'low'})
                 worksheet.insert_chart('O2', chart, {'x_scale': 2.0, 'y_scale': 2.0})
         writer.save()
-        
+
         #Time to deliver the file to S3
         if os.environ.get('S3_BUCKET'):
             s3 = boto3.client('s3')
@@ -418,10 +439,10 @@ class CostExplorer:
                 Source=msg['From'],
                 Destinations=os.environ.get('SES_SEND').split(","),
                 RawMessage={'Data': msg.as_string()}
-            )     
+            )
 
 
-def main_handler(event=None, context=None): 
+def main_handler(event=None, context=None):
     costexplorer = CostExplorer(CurrentMonth=False)
     #Default addReport has filter to remove Support / Credits / Refunds / UpfrontRI
     #Overall Billing Reports
